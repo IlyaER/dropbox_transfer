@@ -34,34 +34,38 @@ handler = logging.StreamHandler()
 cons.addHandler(handler)
 
 
-def load_config(section, option):
+parser = argparse.ArgumentParser(
+    description='Dropbox Simple Transfer - is dropbox file transfer CLI utility')
+
+parser.add_argument('-src', type=str, help='Source file')
+parser.add_argument('-dest', type=str, help='Destination directory')
+parser.add_argument('-h', '--help', type=str, help='Show usage notes')
+args = parser.parse_args()
+
+
+def load_config(section: str, option: str):
     """
     Loads configuration option from ini file
     """
     config = configparser.ConfigParser()
-    with open('settings.ini', 'r') as configfile:
-        config.read('settings.ini')
-        logging.debug(config.sections())
+    logging.debug(f'Loading config: {option}')
+    with open('settings.ini', 'a+') as configfile:
+        config.read(configfile.name)
+        #logging.debug(config.sections())
         if config.has_section(section):
-            logging.debug(config.options(section))
+            #logging.debug(config.options(section))
             if option in config.options(section):
                 return config.get(section, option)
-        return ''
-
-    #logging.debug(config.items())
-    #return check_tokens(config.sections())
-    #return config.sections()
-    #if not config.sections():
-    #    return False
-    #else:
-    #    return config.sections()
-        #with open('settings.ini', 'w') as configfile:  # save
-        #    config.write(configfile)
+    return ''
 
 
 def save_config(section: str, option: str, value: str):
+    """
+    Saves configuration options to ini file.
+    """
     config = configparser.ConfigParser()
-    config.read('settings.ini')
+    with open('settings.ini', 'r') as configfile:
+        config.read(configfile.name)
     if not config.has_section(section):
         config.add_section(section)
     config.set(section, option, str(value))
@@ -77,22 +81,21 @@ def to_number(char):
         return ''
 
 
-
 def check_tokens():
     """
-    Ensures if tokens are present, valid and not expired
+    Ensures if tokens are present, valid and not expired.
+    Obtains new ones or refreshes them.
     """
-    logging.info("Проверка токенов")
+    logging.info("Check tokens")
     tokens = {'access_token': load_config('Tokens', 'access_token'),
               'refresh_token': load_config('Tokens', 'refresh_token'),
               'expires_in': to_number(load_config('Tokens', 'expires_in')),
               }
+    logging.debug(tokens)
     if tokens['access_token'] and tokens['refresh_token'] and tokens['expires_in']:
         if tokens['expires_in'] < time.time() + 30:
             logging.debug(f'Tokens should be refreshed: {tokens}')
             tokens = refresh_tokens(tokens)
-
-        return tokens
     else:
         logging.debug(f'Tokens are missing, obtaining new: {tokens}')
         tokens = obtain_tokens(tokens)
@@ -112,13 +115,12 @@ def refresh_tokens(tokens):
         return obtain_tokens(tokens)
     response = req.json()
     tokens['access_token'] = response['access_token']
-    tokens['refresh_token'] = response['refresh_token']
-    tokens['expires_in'] = response['expires_in']
+    #tokens['refresh_token'] = response['refresh_token']
+    tokens['expires_in'] = response['expires_in'] + time.time()
     for key, value in tokens.items():
         logging.debug(f'{key}: {value}')
         save_config('Tokens', key, value)
     return tokens
-
 
 
 def challenge_generator():
@@ -137,12 +139,6 @@ def challenge_generator():
 
 
 def obtain_tokens(tokens):
-    #if 'args' == 'test':
-    #    dropbox_token = os.getenv('DROPBOX_TOKEN')
-    #else:
-    #    dropbox_token = None
-    #if True: # config.access_token is None:
-
     logging.info("Request API to obtain tokens")
     logging.debug(APP_KEY)
     code_verifier, code_challenge_method, code_challenge = challenge_generator()
@@ -167,33 +163,56 @@ def obtain_tokens(tokens):
             subprocess.Popen(['xdg-open', req.url])
         except OSError:
             print
-            'Please open a browser on: ' + req.url
+            'Невозможно открыть браузер. Пожалуйста пройдите по ссылке: ' + req.url
     print('Необходимо дать разрешение на доступ к вашим данным приложению Simple transfer.')
-    authorization_code = input('Введите код доступа из окна браузера:')
-    logging.debug(f'Authorization code: {authorization_code}')
+    for i in range(3):
+        authorization_code = input('Введите код доступа из окна браузера:')
+        logging.debug(f'Authorization code: {authorization_code}')
 
-    #ufp5E2ouSmAAAAAAAAAAHkzFjo6VWRsNj4cnZXt0xJM
-    params = {'code': authorization_code,
-              'grant_type': 'authorization_code',
-              'client_id': APP_KEY,
-              'code_verifier': code_verifier}
-    logging.debug(f'Request parameters: {params}')
-    req = requests.post(ENDPOINT + 'oauth2/token', params=params)
-    #req = requests.Request('POST', ENDPOINT + 'oauth2/token', params=params)
-    #prepared = req.prepare()
-    #print('{}\n{}\r\n{}\r\n\r\n{}'.format(
-    #    '-----------START-----------',
-    #    prepared.method + ' ' + req.url,
-    #    '\r\n'.join('{}: {}'.format(k, v) for k, v in prepared.headers.items()),
-    #    prepared.body,
-    #))
-    #print(prepared)
-    logging.debug(f'Response status code: {req.status_code}')
-    logging.debug(f'Response plaintext: {req.text}')
-    response = req.json()
-    tokens['access_token'] = response['access_token']
-    tokens['refresh_token'] = response['refresh_token']
-    tokens['expires_in'] = response['expires_in']
+        params = {'code': authorization_code,
+                  'grant_type': 'authorization_code',
+                  'client_id': APP_KEY,
+                  'code_verifier': code_verifier}
+        logging.debug(f'Request parameters: {params}')
+        # TODO try except ConnectionError
+        try:
+            req = requests.post(
+                ENDPOINT + 'oauth2/token',
+                #headers=HEADERS,
+                params=params
+            )
+        except requests.exceptions.RequestException as error:
+            #print(f"Проблема при подключении: {error}")
+            raise Exception(f"Проблема при подключении: {error}")
+
+        logging.debug(f'Response status code: {req.status_code}')
+        logging.debug(f'Response plaintext: {req.text}')
+        response = req.json()
+        if req.status_code == HTTPStatus(200):
+            break
+        logging.error(f'Ошибка: {req.text}')
+        if response['error'] == 'invalid_grant':
+            logging.error(f'Введён неправильный код или он устарел.')
+        else:
+            logging.error('Что-то пошло не так')
+            exit()
+        if i == 2:
+            logging.error('3 раза введён неправильный код')
+            exit()
+
+    if 'access_token' in response:
+        tokens['access_token'] = response['access_token']
+    else:
+        tokens['access_token'] = ""
+    if 'refresh_token' in response:
+        tokens['refresh_token'] = response['refresh_token']
+    else:
+        tokens['refresh_token'] = ""
+    if 'expires_in' in response:
+        tokens['expires_in'] = response['expires_in'] + time.time()
+    else:
+        tokens['expires_in'] = None
+
     for key, value in tokens.items():
         logging.debug(f'{key}: {value}')
         save_config('Tokens', key, value)
@@ -202,11 +221,6 @@ def obtain_tokens(tokens):
     #logging.debug(f'Expires in: {expires_in}')
 
     return tokens
-    #print(access_token.json())
-    #sl.BXehOSw2HDq_j_jTEYArqvnV1_K0TImobaaqoieCLKupzSjNhBxFrrToIWvOXxlagi7npXWAXRW6gTF_WRyQoA4hme2VVAhVIetkhkwEGO3_FO9jN5YoxREvsj0dAxfM - IGqSRc
-    #dropbox_token
-    pass
-    'https://www.dropbox.com/oauth2/authorize?client_id=<APP_KEY>&response_type=code'
 
 
 def check_eligible_operations():
@@ -255,10 +269,12 @@ def check_arguments():
 def main():
     #config = load_config()
     #print(config)
-    tokens = check_tokens()
-
-
-    pass
+    try:
+        tokens = check_tokens()
+    except Exception as error:
+        message = f'Сбой в работе программы: {error}'
+        logging.error(message)
+    print('exiting')
 
 
 if __name__ == '__main__':
