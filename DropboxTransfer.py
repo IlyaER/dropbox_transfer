@@ -22,25 +22,30 @@ APP_KEY = os.getenv('APP_KEY')
 #HEADERS = {'Authorization': f'Bearer {DROPBOX_TOKEN}'}
 ENDPOINT = 'https://api.dropboxapi.com/'
 
+parser = argparse.ArgumentParser(
+    description='Dropbox Simple Transfer - dropbox file transfer CLI utility')
 
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    level=logging.DEBUG) # INFO)
+parser.add_argument('load', type=str, choices=['up', 'down'], help='"UP"load file or "DOWN"load')
+parser.add_argument('src', type=str, help='Source file with path')
+parser.add_argument('dest', type=str, help='Destination directory')
+parser.add_argument('-d', '--debug', action='store_const', const=True, help='Turn on debug')
+args = parser.parse_args()
+
+
+if args.debug:
+    logging.basicConfig(
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        level=logging.DEBUG)
+else:
+    logging.basicConfig(
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        level=logging.ERROR)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 cons = logging.getLogger('errorlog')
 cons.setLevel(logging.ERROR)
 handler = logging.StreamHandler()
 cons.addHandler(handler)
-
-
-parser = argparse.ArgumentParser(
-    description='Dropbox Simple Transfer - is dropbox file transfer CLI utility')
-
-parser.add_argument('-src', type=str, help='Source file')
-parser.add_argument('-dest', type=str, help='Destination directory')
-parser.add_argument('-h', '--help', type=str, help='Show usage notes')
-args = parser.parse_args()
 
 
 def load_config(section: str, option: str):
@@ -222,7 +227,6 @@ def obtain_tokens(tokens):
 
     return tokens
 
-
 def check_eligible_operations():
     pass
 
@@ -241,7 +245,26 @@ def check_if_file_present():
 def download():
     pass
 
-def upload():
+
+def upload(tokens):
+    headers = {'Authorization': f'Bearer {tokens["access_token"]}',
+               'Content-Type': 'application/json',
+               }
+    params = {}
+    with open('file.rar', 'r') as f:
+        data = f.read()
+    try:
+        req = requests.post(
+            ENDPOINT + '2/files/upload',
+            headers=headers,
+            params=params,
+            data=data,
+        )
+    except requests.exceptions.RequestException as error:
+        # print(f"Проблема при подключении: {error}")
+        raise Exception(f"Проблема при подключении: {error}")
+
+
     pass
 
 def check_if_downloadable(url):
@@ -269,11 +292,15 @@ def check_arguments():
 def main():
     #config = load_config()
     #print(config)
+    print(args)
     try:
         tokens = check_tokens()
+        if args.load == 'up':
+            result = upload(tokens)
+
     except Exception as error:
         message = f'Сбой в работе программы: {error}'
-        logging.error(message)
+        logging.exception(message)
     print('exiting')
 
 
