@@ -1,4 +1,5 @@
 import base64
+import datetime
 import hashlib
 import os
 import re
@@ -6,6 +7,7 @@ import subprocess
 import sys
 import logging
 import configparser
+import time
 
 import requests
 import argparse
@@ -16,16 +18,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 APP_KEY = os.getenv('APP_KEY')
-CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 
-DROPBOX_CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 #HEADERS = {'Authorization': f'Bearer {DROPBOX_TOKEN}'}
 ENDPOINT = 'https://api.dropboxapi.com/'
 
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    level=logging.INFO)
+    level=logging.DEBUG) # INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 cons = logging.getLogger('errorlog')
@@ -34,37 +34,84 @@ handler = logging.StreamHandler()
 cons.addHandler(handler)
 
 
-def load_config():
+def load_config(section, option):
+    """
+    Loads configuration option from ini file
+    """
     config = configparser.ConfigParser()
-    config.read('settings.ini')
-    if not config.sections():
-        with open('settings.ini', 'w') as configfile:  # save
-            config.write(configfile)
-    print(config)
+    with open('settings.ini', 'r') as configfile:
+        config.read('settings.ini')
+        logging.debug(config.sections())
+        if config.has_section(section):
+            logging.debug(config.options(section))
+            if option in config.options(section):
+                return config.get(section, option)
+        return ''
+
+    #logging.debug(config.items())
+    #return check_tokens(config.sections())
+    #return config.sections()
+    #if not config.sections():
+    #    return False
+    #else:
+    #    return config.sections()
+        #with open('settings.ini', 'w') as configfile:  # save
+        #    config.write(configfile)
+
+
+
+def save_config(section, option, value):
+    config = configparser.ConfigParser()
+    config.set(section, option, value)
+    with open('settings.ini', 'w') as configfile:  # save
+        config.write(configfile)
+
 
 def check_tokens():
-    return False
+    """
+    Ensures if tokens are present, valid and not expired
+    """
+    logging.info("Проверка токенов")
+    tokens = {'access_token': load_config('Tokens', 'access_token'),
+              'refresh_token': load_config('Tokens', 'refresh_token'),
+              'expires_in': load_config('Tokens', 'expires_in'),
+              }
+    if tokens['access_token'] and tokens['refresh_token'] and tokens['expires_in']:
+        if tokens['expires_in'] > time.time() + 30:
+            logging.debug(f'Tokens should be refreshed: {tokens}')
+            tokens = refresh_tokens(tokens)
+
+    else:
+        tokens = obtain_tokens()
+
+
+    return tokens
     pass
 
+
+def refresh_tokens():
+    pass
+
+
 def obtain_tokens():
-    if 'args' == 'test':
-        dropbox_token = os.getenv('DROPBOX_TOKEN')
-    else:
-        dropbox_token = None
-    if dropbox_token is None:
+    #if 'args' == 'test':
+    #    dropbox_token = os.getenv('DROPBOX_TOKEN')
+    #else:
+    #    dropbox_token = None
+    if True: # config.access_token is None:
         logging.info("Запрос к API")
-        print(APP_KEY)
+        logging.debug(APP_KEY)
         code_verifier = base64.urlsafe_b64encode(os.urandom(40)).decode('utf-8')
-        print(code_verifier)
+        logging.debug(f'Code verifier: {code_verifier}')
         code_verifier = re.sub('[^a-zA-Z0-9]+', '', code_verifier)
-        print(code_verifier, len(code_verifier))
+        logging.debug(f'Code verifier: {code_verifier}, {len(code_verifier)}')
         code_challenge_method = 'S256'
         code_challenge = hashlib.sha256(code_verifier.encode('utf-8')).digest()
-        print(code_challenge)
+        logging.debug(f'Code challenge: {code_challenge}')
         code_challenge = base64.urlsafe_b64encode(code_challenge).decode('utf-8')
-        print(code_challenge)
+        logging.debug(f'Code challenge: {code_challenge}')
         code_challenge = code_challenge.replace('=', '')
-        print(code_challenge)
+        logging.debug(f'Code challenge: {code_challenge}')
         params = {'client_id': APP_KEY,
                   'response_type': 'code',
                   'code_challenge': code_challenge,
@@ -73,7 +120,7 @@ def obtain_tokens():
                   }
         # code_challenge = < CHALLENGE > & code_challenge_method = < METHOD >
         req = requests.Request('GET', 'https://www.dropbox.com/oauth2/authorize', params=params).prepare()
-        logging.info('URL to be executed: ' + req.url)
+        logging.debug('URL to be executed: ' + req.url)
         #url = f'https://www.dropbox.com/oauth2/authorize?client_id={APP_KEY}&response_type=code&code_challenge={code_challenge}&code_challenge_method={code_challenge_method}&token_access_type=offline'
         if sys.platform == 'win32':
             #pass # TODO
@@ -87,14 +134,14 @@ def obtain_tokens():
                 print
                 'Please open a browser on: ' + req.url
         authorization_code = input()
-        print(authorization_code)
+        logging.debug(f'Authorization code: {authorization_code}')
 
         #ufp5E2ouSmAAAAAAAAAAHkzFjo6VWRsNj4cnZXt0xJM
         params = {'code': authorization_code,
                   'grant_type': 'authorization_code',
                   'client_id': APP_KEY,
                   'code_verifier': code_verifier}
-        print(params)
+        logging.debug(f'Request parameters: {params}')
         req = requests.post(ENDPOINT + 'oauth2/token', params=params)
         #req = requests.Request('POST', ENDPOINT + 'oauth2/token', params=params)
         #prepared = req.prepare()
@@ -105,13 +152,14 @@ def obtain_tokens():
         #    prepared.body,
         #))
         #print(prepared)
-        print(req.status_code)
-        print(req.text)
+        logging.debug(f'Response status code: {req.status_code}')
+        logging.debug(f'Response plaintext: {req.text}')
         response = req.json()
         access_token = response['access_token']
         refresh_token = response['refresh_token']
-        print(access_token)
-        print(refresh_token)
+        logging.debug(f'Access token: {access_token}')
+        logging.debug(f'Refresh token: {refresh_token}')
+        return response
         #print(access_token.json())
         #sl.BXehOSw2HDq_j_jTEYArqvnV1_K0TImobaaqoieCLKupzSjNhBxFrrToIWvOXxlagi7npXWAXRW6gTF_WRyQoA4hme2VVAhVIetkhkwEGO3_FO9jN5YoxREvsj0dAxfM - IGqSRc
         #dropbox_token
@@ -157,16 +205,16 @@ def check_if_downloadable(url):
 def return_status():
     pass
 
+
 def check_arguments():
     pass
 
 
-
 def main():
-    load_config()
-
-    if not check_tokens():
-        obtain_tokens()
+    #config = load_config()
+    #print(config)
+    tokens = check_tokens()
+        save_config(tokens)
 
     pass
 
