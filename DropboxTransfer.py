@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('load', type=str, choices=['up', 'down'], help='"UP"load file or "DOWN"load')
 parser.add_argument('src', type=str, help='Source file with path')
-parser.add_argument('dest', type=str, help='Destination directory')
+parser.add_argument('dst', type=str, help='Destination directory')
 parser.add_argument('-d', '--debug', action='store_const', const=True, help='Turn on debug')
 args = parser.parse_args()
 
@@ -237,9 +237,9 @@ def check_eligible_operations():
 def check_local_path(file_path):
     #file_path = r"c:\Documents\Projects\Development\Studies\Test assignments\Dropbox transfer\file.rar"
     #file_path = r"c:/Documents/Projects/Development/Studies/Test assignments/Dropbox transfer/file.rar"
-    file_path = r"file.rar"
+    #file_path = r"/file.rar"
 
-    result = re.findall("r((.|[\r\n]) *)|(ns:[0-9]+(.*)?)|(id:.*)", file_path)
+    result = re.findall("r(/(.|[\r\n])*)|(ns:[0-9]+(/.*)?)|(id:.*)", file_path)
     print(result)
     return file_path
     pass
@@ -260,15 +260,16 @@ def download():
 
 def upload(tokens):
     print(args.src)
+    print(args.dst)
     file_path = check_local_path(args.src)
 
     headers = {'Authorization': f'Bearer {tokens["access_token"]}',
                'Content-Type': 'application/octet-stream',
                'Dropbox-API-Arg': json.dumps({
-                   "autorename": False,
+                   "autorename": True,
                    "mode": "add",
                    "mute": False,
-                   "path": "file.rar",
+                   "path": args.dst,
                    "strict_conflict": False
                })
                }
@@ -301,10 +302,10 @@ def upload(tokens):
     if req.status_code != 200:
         if "did not match pattern" in req.text:
             raise Exception(f"Ошибка выгрузки: {req.text}\n"
-                            f"Неправильный путь для файла на сервере")
-        response = req.json()
-        if response['error_summary'] == 'path/conflict/file/...':
-            raise Exception(f"По заданному пути файл уже есть: {req.text}")
+                            f"Неправильный путь для файла на сервере: {args.dst}")
+        #response = req.json()
+        #if response['error_summary'] == 'path/conflict/file/...':
+        #    raise Exception(f"По заданному пути файл уже есть: {req.text}")
         else:
             raise Exception(f"Проблема при выгрузке файла: {req.text}")
     print("Файл успешно выгружен")
@@ -334,9 +335,7 @@ def check_arguments():
 
 
 def main():
-    #config = load_config()
-    #print(config)
-    #print(args)
+    print(args)
 
     #file_path = check_local_path(args.src)
     #print(file_path)
@@ -345,7 +344,7 @@ def main():
         tokens = check_tokens()
         if args.load == 'up':
             result = upload(tokens)
-
+#
     except Exception as error:
         message = f'Сбой в работе программы: {error}'
         logging.error(message)
