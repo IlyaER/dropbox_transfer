@@ -1,6 +1,7 @@
 import base64
 import datetime
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -21,6 +22,7 @@ APP_KEY = os.getenv('APP_KEY')
 
 #HEADERS = {'Authorization': f'Bearer {DROPBOX_TOKEN}'}
 ENDPOINT = 'https://api.dropboxapi.com/'
+CONTENT = 'https://content.dropboxapi.com/'
 
 parser = argparse.ArgumentParser(
     description='Dropbox Simple Transfer - dropbox file transfer CLI utility')
@@ -34,7 +36,8 @@ args = parser.parse_args()
 
 if args.debug:
     logging.basicConfig(
-        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        #format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        format='%(asctime)s - %(levelname)s - %(message)s',
         level=logging.DEBUG)
 else:
     logging.basicConfig(
@@ -230,8 +233,17 @@ def obtain_tokens(tokens):
 def check_eligible_operations():
     pass
 
-def check_local_URL():
+
+def check_local_path(file_path):
+    #file_path = r"c:\Documents\Projects\Development\Studies\Test assignments\Dropbox transfer\file.rar"
+    #file_path = r"c:/Documents/Projects/Development/Studies/Test assignments/Dropbox transfer/file.rar"
+    file_path = r"file.rar"
+
+    result = re.findall("r((.|[\r\n]) *)|(ns:[0-9]+(.*)?)|(id:.*)", file_path)
+    print(result)
+    return file_path
     pass
+
 
 def check_remote_URL():
     pass
@@ -247,25 +259,57 @@ def download():
 
 
 def upload(tokens):
+    print(args.src)
+    file_path = check_local_path(args.src)
+
     headers = {'Authorization': f'Bearer {tokens["access_token"]}',
-               'Content-Type': 'application/json',
+               'Content-Type': 'application/octet-stream',
+               'Dropbox-API-Arg': json.dumps({
+                   "autorename": False,
+                   "mode": "add",
+                   "mute": False,
+                   "path": "file.rar",
+                   "strict_conflict": False
+               })
                }
     params = {}
-    with open('file.rar', 'r') as f:
-        data = f.read()
+    # TODO: provide hash to check if upload was correct
+    # TODO: implement progress bar
+    #with open('file.rar', 'rb') as f:
+    try:
+        with open(file_path, 'rb') as f:
+            data = f.read()
+    except FileNotFoundError:
+        raise Exception(f"Файл не найден: {file_path} \n\r"
+                        f"Проверьте корректность пути и имени файла.")
+    except PermissionError:
+        raise Exception(f"Ошибка доступа к файлу: {file_path} \n\r"
+                        f"Необходимы права на чтение файла.")
+    print('Выгрузка файла на сервер Dropbox')
     try:
         req = requests.post(
-            ENDPOINT + '2/files/upload',
+            CONTENT + '2/files/upload',
             headers=headers,
             params=params,
             data=data,
         )
     except requests.exceptions.RequestException as error:
-        # print(f"Проблема при подключении: {error}")
         raise Exception(f"Проблема при подключении: {error}")
 
+    logging.debug(f'Response status code: {req.status_code}')
+    logging.debug(f'Response plaintext: {req.text}')
+    if req.status_code != 200:
+        if "did not match pattern" in req.text:
+            raise Exception(f"Ошибка выгрузки: {req.text}\n"
+                            f"Неправильный путь для файла на сервере")
+        response = req.json()
+        if response['error_summary'] == 'path/conflict/file/...':
+            raise Exception(f"По заданному пути файл уже есть: {req.text}")
+        else:
+            raise Exception(f"Проблема при выгрузке файла: {req.text}")
+    print("Файл успешно выгружен")
 
-    pass
+
 
 def check_if_downloadable(url):
     """
@@ -292,7 +336,11 @@ def check_arguments():
 def main():
     #config = load_config()
     #print(config)
-    print(args)
+    #print(args)
+
+    #file_path = check_local_path(args.src)
+    #print(file_path)
+
     try:
         tokens = check_tokens()
         if args.load == 'up':
@@ -300,8 +348,8 @@ def main():
 
     except Exception as error:
         message = f'Сбой в работе программы: {error}'
-        logging.exception(message)
-    print('exiting')
+        logging.error(message)
+    print('выход')
 
 
 if __name__ == '__main__':
