@@ -13,14 +13,12 @@ import time
 import requests
 import argparse
 from http import HTTPStatus
-#from oauthlib.oauth2 import WebApplicationClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
 APP_KEY = os.getenv('APP_KEY')
 
-#HEADERS = {'Authorization': f'Bearer {DROPBOX_TOKEN}'}
 ENDPOINT = 'https://api.dropboxapi.com/'
 CONTENT = 'https://content.dropboxapi.com/'
 
@@ -33,10 +31,9 @@ parser.add_argument('dst', nargs='?', type=str, help='Destination directory')
 parser.add_argument('-d', '--debug', action='store_const', const=True, help='Turn on debug')
 args = parser.parse_args()
 
-
 if args.debug:
     logging.basicConfig(
-        #format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        #  format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
         format='%(asctime)s - %(levelname)s - %(message)s',
         level=logging.DEBUG)
 else:
@@ -59,9 +56,7 @@ def load_config(section: str, option: str):
     logging.debug(f'Loading config: {option}')
     with open('settings.ini', 'a+') as configfile:
         config.read(configfile.name)
-        #logging.debug(config.sections())
         if config.has_section(section):
-            #logging.debug(config.options(section))
             if option in config.options(section):
                 return config.get(section, option)
     return ''
@@ -111,6 +106,9 @@ def check_tokens():
 
 
 def refresh_tokens(tokens):
+    """
+    Updates tokens using PKCE code flow's refresh token to obtain new access token.
+    """
     params = {'grant_type': 'refresh_token',
               'client_id': APP_KEY,
               'refresh_token': tokens['refresh_token']}
@@ -123,7 +121,6 @@ def refresh_tokens(tokens):
         return obtain_tokens(tokens)
     response = req.json()
     tokens['access_token'] = response['access_token']
-    #tokens['refresh_token'] = response['refresh_token']
     tokens['expires_in'] = response['expires_in'] + time.time()
     for key, value in tokens.items():
         logging.debug(f'{key}: {value}')
@@ -132,6 +129,10 @@ def refresh_tokens(tokens):
 
 
 def challenge_generator():
+    """
+    Generates random base64-safe sequence and a S256 hash as code challenge
+    for server-side client verification to protect from MITM attacks.
+    """
     code_verifier = base64.urlsafe_b64encode(os.urandom(40)).decode('utf-8')
     logging.debug(f'Code verifier: {code_verifier}')
     code_verifier = re.sub('[^a-zA-Z0-9]+', '', code_verifier)
@@ -147,6 +148,9 @@ def challenge_generator():
 
 
 def obtain_tokens(tokens):
+    """
+    Obtains tokens for OAuth 2 authorization of the app using PKCE flow.
+    """
     logging.info("Request API to obtain tokens")
     logging.debug(APP_KEY)
     code_verifier, code_challenge_method, code_challenge = challenge_generator()
@@ -157,12 +161,10 @@ def obtain_tokens(tokens):
               'code_challenge_method': code_challenge_method,
               'token_access_type': 'offline'
               }
-    # code_challenge = < CHALLENGE > & code_challenge_method = < METHOD >
     req = requests.Request('GET', 'https://www.dropbox.com/oauth2/authorize', params=params).prepare()
     logging.debug('URL to be executed: ' + req.url)
-    #url = f'https://www.dropbox.com/oauth2/authorize?client_id={APP_KEY}&response_type=code&code_challenge={code_challenge}&code_challenge_method={code_challenge_method}&token_access_type=offline'
+    print('Необходимо дать разрешение на доступ к вашим данным приложению Simple transfer.')
     if sys.platform == 'win32':
-        #pass # TODO
         os.startfile(req.url)
     elif sys.platform == 'darwin':
         subprocess.Popen(['open', req.url])
@@ -170,9 +172,8 @@ def obtain_tokens(tokens):
         try:
             subprocess.Popen(['xdg-open', req.url])
         except OSError:
-            print
-            'Невозможно открыть браузер. Пожалуйста пройдите по ссылке: ' + req.url
-    print('Необходимо дать разрешение на доступ к вашим данным приложению Simple transfer.')
+            print('Невозможно открыть браузер. Пожалуйста пройдите по ссылке: ' + req.url)
+    print("Если вы случайно закрыли окно браузера, пожалуйста пройдите по ссылке: " + req.url)
     for i in range(3):
         authorization_code = input('Введите код доступа из окна браузера:')
         logging.debug(f'Authorization code: {authorization_code}')
@@ -186,11 +187,9 @@ def obtain_tokens(tokens):
         try:
             req = requests.post(
                 ENDPOINT + 'oauth2/token',
-                #headers=HEADERS,
                 params=params
             )
         except requests.exceptions.RequestException as error:
-            #print(f"Проблема при подключении: {error}")
             raise Exception(f"Проблема при подключении: {error}")
 
         logging.debug(f'Response status code: {req.status_code}')
@@ -202,11 +201,9 @@ def obtain_tokens(tokens):
         if response['error'] == 'invalid_grant':
             logging.error(f'Введён неправильный код или он устарел.')
         else:
-            logging.error('Что-то пошло не так')
-            exit()
+            raise Exception('Что-то пошло не так')
         if i == 2:
-            logging.error('3 раза введён неправильный код')
-            exit()
+            raise Exception('3 раза введён неправильный код')
 
     if 'access_token' in response:
         tokens['access_token'] = response['access_token']
@@ -224,27 +221,19 @@ def obtain_tokens(tokens):
     for key, value in tokens.items():
         logging.debug(f'{key}: {value}')
         save_config('Tokens', key, value)
-    #logging.debug(f'Access token: {access_token}')
-    #logging.debug(f'Refresh token: {refresh_token}')
-    #logging.debug(f'Expires in: {expires_in}')
 
     return tokens
 
-def check_eligible_operations():
-    pass
-
 
 def check_local_path(path):
-    #path = r"c:\Documents\Projects\Development\Studies\Test assignments\Dropbox transfer\file.rar"
-    #path = r"c:/Documents/Projects/Development/Studies/Test assignments/Dropbox transfer/file.rar"
-    #path = r"/file.rar"
-
+    """
+    Validates local file/folder path.
+    """
     if args.load == 'up' and os.path.isfile(path):
         return path
 
-    if args.load == 'down': #and os.path.exists(path):
+    if args.load == 'down':  # and os.path.exists(path):
         pattern = r'.*(\\|/)'
-        pattern_start = r'(\\|/).*'
         remote_file_name = re.sub(pattern, '', args.src)
         if not path:
             logging.debug(f"File_name: {remote_file_name}")
@@ -263,7 +252,10 @@ def check_local_path(path):
 
 
 def check_remote_URL(path):
-    #result = re.findall(r"(/(.|[\r\n])*)|(ns:[0-9]+(/.*)?)|(id:.*)", path)
+    """
+    Validates remote URL.
+    """
+    # result = re.findall(r"(/(.|[\r\n])*)|(ns:[0-9]+(/.*)?)|(id:.*)", path)
     #print(result)
     pattern = r'.*(\\|/)'
     if args.load == 'up':
@@ -274,22 +266,19 @@ def check_remote_URL(path):
         logging.debug(f"Path ends with file name: {path.endswith(local_file_name)}")
         if path.endswith("/"):
             return path + local_file_name
-    #elif args.load == 'down':
-    #    if not path:
-    #        path = "/"
-    #    #file_name = re.sub(pattern, '', args.dst)
-    #    return path
     return path
 
 
 def download(tokens):
+    """
+    Downloads file from remote source.
+    """
     logging.debug(f"Source:{args.src}")
     path = check_remote_URL(args.src)
-    logging.debug(path)
     logging.debug(f"Destination:{args.dst}")
     file_path = check_local_path(args.dst)
-
     logging.debug(f"Destination:{file_path}")
+
     headers = {'Authorization': f'Bearer {tokens["access_token"]}',
                'Content-Type': 'application/octet-stream',
                'Dropbox-API-Arg': json.dumps({
@@ -297,53 +286,57 @@ def download(tokens):
                })
                }
     params = {}
-    # TODO: provide hash to check if upload was correct
+    # TODO: validate hash to see if download was correct
     # TODO: implement progress bar
     print('Загрузка файла с сервера Dropbox')
     try:
-        req = requests.post(
-            CONTENT + '2/files/download',
-            headers=headers,
-            params=params,
-        )
-    except requests.exceptions.RequestException as error:
-        raise Exception(f"Проблема при подключении: {error}")
-    logging.debug(f'Response status code: {req.status_code}')
-    if req.status_code != 200:
-        if "did not match pattern" in req.text:
-            raise Exception(f"Ошибка загрузки: {req.text}\n"
-                            f"Неправильный путь для файла на сервере: {args.dst}")
-        try:
-            response = req.json()
-        except ValueError:
-            raise Exception(f"Проблема при загрузке файла: {req.text}")
-        if "path/not_file/" in response['error_summary']:
-            raise Exception(f"Указанный путь не является файлом на сервере: {req.text}")
-        elif "path/not_found/" in response['error_summary']:
-            raise Exception(f"Неверный путь к файлу на сервере: {req.text}")
-        #elif 'path/conflict/file/' in response['error_summary']:
-        #    raise Exception(f"По заданному пути файл уже есть: {req.text}")
-        elif 'path/malformed_path/' in response['error_summary']:
-            raise Exception(f"Указан неправильный путь на сервере Dropbox: {path}")
-        raise Exception(f"Проблема при загрузке файла: {req.text}")
-    try:
-        logging.debug('Файл загружен, сохраняем.')
-        open(file_path, 'wb').write(req.content)
+        with open(file_path, 'wb') as file:
+            try:
+                req = requests.post(
+                    CONTENT + '2/files/download',
+                    headers=headers,
+                    params=params,
+                )
+            except requests.exceptions.RequestException as error:
+                raise Exception(f"Проблема при подключении: {error}")
+            logging.debug(f'Response status code: {req.status_code}')
+            if req.status_code != 200:
+                if "did not match pattern" in req.text:
+                    raise Exception(f"Ошибка загрузки: {req.text}\n"
+                                    f"Неправильный путь для файла на сервере: {args.dst}")
+                try:
+                    response = req.json()
+                except ValueError:
+                    raise Exception(f"Проблема при загрузке файла: {req.text}")
+                if "path/not_file/" in response['error_summary']:
+                    raise Exception(f"Указанный путь не является файлом на сервере: {req.text}")
+                elif "path/not_found/" in response['error_summary']:
+                    raise Exception(f"Неверный путь к файлу на сервере, такого файла нет: {req.text}")
+                elif 'path/malformed_path/' in response['error_summary']:
+                    raise Exception(f"Указан неправильный путь на сервере Dropbox: {path}")
+                raise Exception(f"Проблема при загрузке файла: {req.text}")
+            logging.debug('Файл загружен, сохраняем.')
+            file.write(req.content)
     except FileNotFoundError:
         raise Exception(f"Файл не найден: {file_path} \n\r"
                         f"Проверьте корректность пути и имени файла.")
     except PermissionError:
         raise Exception(f"Ошибка доступа к файлу: {file_path} \n\r"
-                        f"Необходимы права на запись файла.")
-    print("Файл успешно загружен")
+                        f"Необходимы права на запись файла, либо некорректный путь.")
+    print("Файл успешно загружен и сохранён.")
+    return "Success"
 
 
 def upload(tokens):
-    print(f"Source:{args.src}")
+    """
+    Uploads file to remote destination.
+    """
+    logging.debug(f"Source:{args.src}")
     file_path = check_local_path(args.src)
-    print(f"Destination:{args.dst}")
+    logging.debug(f"Destination:{args.dst}")
     path = check_remote_URL(args.dst)
-    print(path)
+    logging.debug(f"Destination:{path}")
+
     headers = {'Authorization': f'Bearer {tokens["access_token"]}',
                'Content-Type': 'application/octet-stream',
                'Dropbox-API-Arg': json.dumps({
@@ -357,7 +350,6 @@ def upload(tokens):
     params = {}
     # TODO: provide hash to check if upload was correct
     # TODO: implement progress bar
-    #with open('file.rar', 'rb') as f:
     try:
         with open(file_path, 'rb') as f:
             data = f.read()
@@ -394,44 +386,18 @@ def upload(tokens):
             raise Exception(f"Указан неправильный путь на сервере Dropbox: {path}")
         raise Exception(f"Проблема при выгрузке файла: {req.text}")
     print("Файл успешно выгружен")
-
-
-
-def check_if_downloadable(url):
-    """
-    Does the url contain a downloadable resource
-    """
-    h = requests.head(url, allow_redirects=True)
-    header = h.headers
-    content_type = header.get('content-type')
-    if 'text' in content_type.lower():
-        return False
-    if 'html' in content_type.lower():
-        return False
-    return True
-
-
-def return_status():
-    pass
-
-
-def check_arguments():
-    pass
+    return "Success"
 
 
 def main():
-    print(args)
-
-    #file_path = check_local_path(args.src)
-    #print(file_path)
-
+    logging.debug(args)
     try:
         tokens = check_tokens()
         if args.load == 'up':
             result = upload(tokens)
         elif args.load == 'down':
             result = download(tokens)
-
+        logging.info(result)
     except Exception as error:
         message = f'Ошибка: {error}'
         logging.error(message)
