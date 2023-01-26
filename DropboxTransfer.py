@@ -216,7 +216,8 @@ def obtain_tokens(tokens):
                 API + 'oauth2/token',
                 params=params
             )
-        except (requests.exceptions.RequestException, ConnectionError) as error:
+        except (requests.exceptions.RequestException,
+                ConnectionError) as error:
             logging.error(f"Проблема при подключении: {error}")
             raise
 
@@ -268,7 +269,9 @@ def check_local_path(path):
         if not path:
             logging.debug(f"File_name: {remote_file_name}")
             return remote_file_name
-        logging.debug(os.path.isdir(path))
+        if os.path.isdir(path) and not path.endswith(os.sep):
+            path += os.sep
+            logging.debug(f"Path is a directory: {os.path.isdir(path)}")
         logging.debug(os.path.isfile(path))
         logging.debug(path)
         if path.endswith(os.sep):
@@ -277,7 +280,7 @@ def check_local_path(path):
             return path[1:]
         return os.path.normpath(path)
     logging.error(f"Файл не найден: {path} \n\r"
-                    f"Проверьте корректность пути и имени файла.")
+                  f"Проверьте корректность пути и имени файла.")
     raise FileNotFoundError
 
 
@@ -318,7 +321,7 @@ def download(tokens):
     params = {}
     # TODO: validate hash to see if download was correct
     # TODO: implement progress bar
-    print('Загрузка файла с сервера Dropbox')
+    print('Загрузка файла с сервера Dropbox...')
     try:
         with open(file_path, 'wb') as file:
             try:
@@ -327,7 +330,8 @@ def download(tokens):
                     headers=headers,
                     params=params,
                 )
-            except (requests.exceptions.RequestException, ConnectionError) as error:
+            except (requests.exceptions.RequestException,
+                    ConnectionError) as error:
                 logging.error(f"Проблема при подключении: {error}")
                 raise
             logging.debug(f'Response status code: {req.status_code}')
@@ -335,7 +339,7 @@ def download(tokens):
                 if "did not match pattern" in req.text:
                     logging.error(
                         f"Ошибка загрузки: {req.text}\n"
-                        f"Неправильный путь для файла на сервере: {args.dst}"
+                        f"Неправильный путь для файла на сервере: {file_path}"
                     )
                     raise ValueError
                 try:
@@ -356,19 +360,19 @@ def download(tokens):
                         f"Неверный путь к файлу на сервере, "
                         f"такого файла нет: {req.text}"
                     )
-                    raise FileNotFoundError
+                    raise ConnectionRefusedError
                 elif 'path/malformed_path/' in response['error_summary']:
                     logging.error(
                         f"Указан неправильный путь на сервере Dropbox: {path}"
                     )
-                    raise FileNotFoundError
+                    raise ConnectionRefusedError
                 logging.error(f"Проблема при загрузке файла: {req.text}")
                 raise ConnectionAbortedError
             logging.debug('Файл загружен, сохраняем.')
             file.write(req.content)
     except FileNotFoundError:
         logging.error(f"Файл не найден: {file_path} \n\r"
-                        f"Проверьте корректность пути и имени файла.")
+                      f"Проверьте корректность пути и имени файла.")
         raise
 
     except PermissionError:
@@ -377,9 +381,7 @@ def download(tokens):
             f"Необходимы права на запись файла, либо некорректный путь."
         )
         raise
-
-    print("Файл успешно загружен и сохранён.")
-    return "Success"
+    return "Файл успешно загружен и сохранён."
 
 
 def upload(tokens):
@@ -410,11 +412,11 @@ def upload(tokens):
             data = f.read()
     except FileNotFoundError:
         logging.error(f"Файл не найден: {file_path} \n\r"
-                        f"Проверьте корректность пути и имени файла.")
+                      f"Проверьте корректность пути и имени файла.")
         raise
     except PermissionError:
         logging.error(f"Ошибка доступа к файлу: {file_path} \n\r"
-                        f"Необходимы права на чтение файла.")
+                      f"Необходимы права на чтение файла.")
         raise
     print('Выгрузка файла на сервер Dropbox...')
     try:
@@ -434,7 +436,7 @@ def upload(tokens):
         if "did not match pattern" in req.text:
             raise ValueError(
                 f"Ошибка выгрузки: {req.text}\n"
-                f"Неправильный путь для файла на сервере: {args.dst}"
+                f"Неправильный путь для файла на сервере: {path}"
             )
         try:
             response = req.json()
@@ -442,14 +444,17 @@ def upload(tokens):
             logging.error(f"Проблема при выгрузке файла: {req.text}")
             raise
         if 'path/conflict/file/' in response['error_summary']:
-            raise FileExistsError(f"По заданному пути файл уже есть: {req.text}")
+            raise FileExistsError(
+                f"По заданному пути файл уже есть: {req.text}"
+            )
         elif 'path/malformed_path/' in response['error_summary']:
             raise FileNotFoundError(
                 f"Указан неправильный путь на сервере Dropbox: {path}"
             )
-        raise ConnectionAbortedError(f"Проблема при выгрузке файла: {req.text}")
-    print("Файл успешно выгружен")
-    return "Success"
+        raise ConnectionAbortedError(
+            f"Проблема при выгрузке файла: {req.text}"
+        )
+    return "Файл успешно выгружен"
 
 
 def main():
@@ -461,6 +466,7 @@ def main():
         elif args.load == 'down':
             result = download(tokens)
         logging.info(result)
+        print(result)
     except (PermissionError,
             FileNotFoundError,
             ValueError,
@@ -471,9 +477,8 @@ def main():
             IsADirectoryError,
             ConnectionRefusedError,
             ) as error:
-        message = f'Ошибка: {error}'
+        message = f'Ошибка! {error}'
         logging.error(message)
-    print('выход')
 
 
 if __name__ == '__main__':
