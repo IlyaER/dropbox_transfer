@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('load', type=str, choices=['up', 'down'], help='"UP"load file or "DOWN"load')
 parser.add_argument('src', type=str, help='Source file with path')
-parser.add_argument('dst', type=str, help='Destination directory')
+parser.add_argument('dst', nargs='?', type=str, help='Destination directory')
 parser.add_argument('-d', '--debug', action='store_const', const=True, help='Turn on debug')
 args = parser.parse_args()
 
@@ -234,19 +234,36 @@ def check_eligible_operations():
     pass
 
 
-def check_local_path(file_path):
-    #file_path = r"c:\Documents\Projects\Development\Studies\Test assignments\Dropbox transfer\file.rar"
-    #file_path = r"c:/Documents/Projects/Development/Studies/Test assignments/Dropbox transfer/file.rar"
-    #file_path = r"/file.rar"
+def check_local_path(path):
+    #path = r"c:\Documents\Projects\Development\Studies\Test assignments\Dropbox transfer\file.rar"
+    #path = r"c:/Documents/Projects/Development/Studies/Test assignments/Dropbox transfer/file.rar"
+    #path = r"/file.rar"
 
-    result = re.findall("r(/(.|[\r\n])*)|(ns:[0-9]+(/.*)?)|(id:.*)", file_path)
-    print(result)
-    return file_path
-    pass
+    if args.load == 'up' and os.path.isfile(path):
+        return path
+
+    if args.load == 'down' and os.path.exists(path):
+        return path
+
+    raise Exception(f"Файл не найден: {path} \n\r"
+                    f"Проверьте корректность пути и имени файла.")
 
 
-def check_remote_URL():
-    pass
+def check_remote_URL(path):
+    #result = re.findall(r"(/(.|[\r\n])*)|(ns:[0-9]+(/.*)?)|(id:.*)", path)
+    #print(result)
+    pattern = r'.*(\\|/)'
+    if args.load == 'up':
+        if not path:
+            path = "/"
+        local_file_name = re.sub(pattern, '', args.src)
+        logging.debug(f"File_name: {local_file_name}")
+        logging.debug(f"Path ends with file name: {path.endswith(local_file_name)}")
+        if path.endswith("/"):
+            return path + local_file_name
+    elif args.load == 'down':
+        file_name = re.sub(pattern, '', args.dst)
+    return path
 
 def check_file_permissions():
     pass
@@ -260,16 +277,17 @@ def download():
 
 def upload(tokens):
     print(args.src)
-    print(args.dst)
+    print(f"Destination:{args.dst}")
     file_path = check_local_path(args.src)
-
+    path = check_remote_URL(args.dst)
+    print(path)
     headers = {'Authorization': f'Bearer {tokens["access_token"]}',
                'Content-Type': 'application/octet-stream',
                'Dropbox-API-Arg': json.dumps({
                    "autorename": True,
                    "mode": "add",
                    "mute": False,
-                   "path": args.dst,
+                   "path": path,
                    "strict_conflict": False
                })
                }
@@ -303,11 +321,15 @@ def upload(tokens):
         if "did not match pattern" in req.text:
             raise Exception(f"Ошибка выгрузки: {req.text}\n"
                             f"Неправильный путь для файла на сервере: {args.dst}")
-        #response = req.json()
-        #if response['error_summary'] == 'path/conflict/file/...':
-        #    raise Exception(f"По заданному пути файл уже есть: {req.text}")
-        else:
+        try:
+            response = req.json()
+        except ValueError:
             raise Exception(f"Проблема при выгрузке файла: {req.text}")
+        if 'path/conflict/file/' in response['error_summary']:
+            raise Exception(f"По заданному пути файл уже есть: {req.text}")
+        elif 'path/malformed_path/' in response['error_summary']:
+            raise Exception(f"Указан неправильный путь на сервере Dropbox: {path}")
+        raise Exception(f"Проблема при выгрузке файла: {req.text}")
     print("Файл успешно выгружен")
 
 
@@ -346,7 +368,7 @@ def main():
             result = upload(tokens)
 #
     except Exception as error:
-        message = f'Сбой в работе программы: {error}'
+        message = f'Ошибка: {error}'
         logging.error(message)
     print('выход')
 
