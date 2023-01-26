@@ -1,34 +1,53 @@
+import argparse
 import base64
-import datetime
+import configparser
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
 import sys
-import logging
-import configparser
 import time
+from http import HTTPStatus
 
 import requests
-import argparse
-from http import HTTPStatus
 from dotenv import load_dotenv
 
 load_dotenv()
 
 APP_KEY = os.getenv('APP_KEY')
 
-ENDPOINT = 'https://api.dropboxapi.com/'
+API = 'https://api.dropboxapi.com/'
 CONTENT = 'https://content.dropboxapi.com/'
 
 parser = argparse.ArgumentParser(
     description='Dropbox Simple Transfer - dropbox file transfer CLI utility')
 
-parser.add_argument('load', type=str, choices=['up', 'down'], help='"UP"load file or "DOWN"load')
-parser.add_argument('src', type=str, help='Source file with path')
-parser.add_argument('dst', nargs='?', type=str, help='Destination directory')
-parser.add_argument('-d', '--debug', action='store_const', const=True, help='Turn on debug')
+parser.add_argument(
+    'load',
+    type=str,
+    choices=['up', 'down'],
+    help='"UP"load file or "DOWN"load'
+)
+parser.add_argument(
+    'src',
+    type=str,
+    help='Source file with path'
+)
+parser.add_argument(
+    'dst',
+    nargs='?',
+    type=str,
+    help='Destination directory'
+)
+parser.add_argument(
+    '-d',
+    '--debug',
+    action='store_const',
+    const=True,
+    help='Turn on debug'
+)
 args = parser.parse_args()
 
 if args.debug:
@@ -72,7 +91,7 @@ def save_config(section: str, option: str, value: str):
     if not config.has_section(section):
         config.add_section(section)
     config.set(section, option, str(value))
-    with open('settings.ini', 'w') as configfile:  # save
+    with open('settings.ini', 'w') as configfile:
         config.write(configfile)
 
 
@@ -95,29 +114,30 @@ def check_tokens():
               'expires_in': to_number(load_config('Tokens', 'expires_in')),
               }
     logging.debug(tokens)
-    if tokens['access_token'] and tokens['refresh_token'] and tokens['expires_in']:
+    if (tokens['access_token']
+            and tokens['refresh_token']
+            and tokens['expires_in']):
         if tokens['expires_in'] < time.time() + 30:
             logging.debug(f'Tokens should be refreshed: {tokens}')
             tokens = refresh_tokens(tokens)
-    else:
-        logging.debug(f'Tokens are missing, obtaining new: {tokens}')
-        tokens = obtain_tokens(tokens)
-    return tokens
+    logging.debug(f'Tokens are missing, obtaining new: {tokens}')
+    return obtain_tokens(tokens)
 
 
 def refresh_tokens(tokens):
     """
-    Updates tokens using PKCE code flow's refresh token to obtain new access token.
+    Updates tokens using PKCE code flow's refresh token to obtain
+    new access token.
     """
     params = {'grant_type': 'refresh_token',
               'client_id': APP_KEY,
               'refresh_token': tokens['refresh_token']}
     logging.debug(f'Request parameters: {params}')
-    req = requests.post(ENDPOINT + 'oauth2/token', params=params)
+    req = requests.post(API + 'oauth2/token', params=params)
     logging.debug(f'Response status code: {req.status_code}')
     logging.debug(f'Response plaintext: {req.text}')
     if req.status_code != HTTPStatus(200):
-        logging.info(f'Failed to refresh tokens, obtaining new ones')
+        logging.info('Failed to refresh tokens, obtaining new ones')
         return obtain_tokens(tokens)
     response = req.json()
     tokens['access_token'] = response['access_token']
@@ -153,7 +173,10 @@ def obtain_tokens(tokens):
     """
     logging.info("Request API to obtain tokens")
     logging.debug(APP_KEY)
-    code_verifier, code_challenge_method, code_challenge = challenge_generator()
+
+    (code_verifier,
+     code_challenge_method,
+     code_challenge) = challenge_generator()
 
     params = {'client_id': APP_KEY,
               'response_type': 'code',
@@ -161,9 +184,13 @@ def obtain_tokens(tokens):
               'code_challenge_method': code_challenge_method,
               'token_access_type': 'offline'
               }
-    req = requests.Request('GET', 'https://www.dropbox.com/oauth2/authorize', params=params).prepare()
+    req = requests.Request(
+        'GET',
+        'https://www.dropbox.com/oauth2/authorize',
+        params=params).prepare()
     logging.debug('URL to be executed: ' + req.url)
-    print('Необходимо дать разрешение на доступ к вашим данным приложению Simple transfer.')
+    print('Необходимо дать разрешение на доступ к вашим данным '
+          'приложению Simple transfer.')
     if sys.platform == 'win32':
         os.startfile(req.url)
     elif sys.platform == 'darwin':
@@ -172,8 +199,10 @@ def obtain_tokens(tokens):
         try:
             subprocess.Popen(['xdg-open', req.url])
         except OSError:
-            print('Невозможно открыть браузер. Пожалуйста пройдите по ссылке: ' + req.url)
-    print("Если вы случайно закрыли окно браузера, пожалуйста пройдите по ссылке: " + req.url)
+            print('Невозможно открыть браузер. '
+                  'Пожалуйста пройдите по ссылке: \n\r' + req.url)
+    print("Если вы случайно закрыли окно браузера, "
+          "пожалуйста пройдите по ссылке: \n\r" + req.url)
     for i in range(3):
         authorization_code = input('Введите код доступа из окна браузера:')
         logging.debug(f'Authorization code: {authorization_code}')
@@ -186,7 +215,7 @@ def obtain_tokens(tokens):
         # TODO try except ConnectionError
         try:
             req = requests.post(
-                ENDPOINT + 'oauth2/token',
+                API + 'oauth2/token',
                 params=params
             )
         except requests.exceptions.RequestException as error:
@@ -199,7 +228,7 @@ def obtain_tokens(tokens):
             break
         logging.error(f'Ошибка: {req.text}')
         if response['error'] == 'invalid_grant':
-            logging.error(f'Введён неправильный код или он устарел.')
+            logging.error('Введён неправильный код или он устарел.')
         else:
             raise Exception('Что-то пошло не так')
         if i == 2:
@@ -255,15 +284,15 @@ def check_remote_URL(path):
     """
     Validates remote URL.
     """
-    # result = re.findall(r"(/(.|[\r\n])*)|(ns:[0-9]+(/.*)?)|(id:.*)", path)
-    #print(result)
     pattern = r'.*(\\|/)'
     if args.load == 'up':
         if not path:
             path = "/"
         local_file_name = re.sub(pattern, '', args.src)
         logging.debug(f"File_name: {local_file_name}")
-        logging.debug(f"Path ends with file name: {path.endswith(local_file_name)}")
+        logging.debug(
+            f"Path ends with file name: {path.endswith(local_file_name)}"
+        )
         if path.endswith("/"):
             return path + local_file_name
     return path
@@ -302,18 +331,30 @@ def download(tokens):
             logging.debug(f'Response status code: {req.status_code}')
             if req.status_code != 200:
                 if "did not match pattern" in req.text:
-                    raise Exception(f"Ошибка загрузки: {req.text}\n"
-                                    f"Неправильный путь для файла на сервере: {args.dst}")
+                    raise Exception(
+                        f"Ошибка загрузки: {req.text}\n"
+                        f"Неправильный путь для файла на сервере: {args.dst}"
+                    )
                 try:
                     response = req.json()
                 except ValueError:
-                    raise Exception(f"Проблема при загрузке файла: {req.text}")
+                    raise Exception(
+                        f"Проблема при загрузке файла: {req.text}"
+                    )
                 if "path/not_file/" in response['error_summary']:
-                    raise Exception(f"Указанный путь не является файлом на сервере: {req.text}")
+                    raise Exception(
+                        f"Указанный путь не является "
+                        f"файлом на сервере: {req.text}"
+                    )
                 elif "path/not_found/" in response['error_summary']:
-                    raise Exception(f"Неверный путь к файлу на сервере, такого файла нет: {req.text}")
+                    raise Exception(
+                        f"Неверный путь к файлу на сервере, "
+                        f"такого файла нет: {req.text}"
+                    )
                 elif 'path/malformed_path/' in response['error_summary']:
-                    raise Exception(f"Указан неправильный путь на сервере Dropbox: {path}")
+                    raise Exception(
+                        f"Указан неправильный путь на сервере Dropbox: {path}"
+                    )
                 raise Exception(f"Проблема при загрузке файла: {req.text}")
             logging.debug('Файл загружен, сохраняем.')
             file.write(req.content)
@@ -321,8 +362,10 @@ def download(tokens):
         raise Exception(f"Файл не найден: {file_path} \n\r"
                         f"Проверьте корректность пути и имени файла.")
     except PermissionError:
-        raise Exception(f"Ошибка доступа к файлу: {file_path} \n\r"
-                        f"Необходимы права на запись файла, либо некорректный путь.")
+        raise Exception(
+            f"Ошибка доступа к файлу: {file_path} \n\r"
+            f"Необходимы права на запись файла, либо некорректный путь."
+        )
     print("Файл успешно загружен и сохранён.")
     return "Success"
 
@@ -374,8 +417,10 @@ def upload(tokens):
     logging.debug(f'Response plaintext: {req.text}')
     if req.status_code != 200:
         if "did not match pattern" in req.text:
-            raise Exception(f"Ошибка выгрузки: {req.text}\n"
-                            f"Неправильный путь для файла на сервере: {args.dst}")
+            raise Exception(
+                f"Ошибка выгрузки: {req.text}\n"
+                f"Неправильный путь для файла на сервере: {args.dst}"
+            )
         try:
             response = req.json()
         except ValueError:
@@ -383,7 +428,9 @@ def upload(tokens):
         if 'path/conflict/file/' in response['error_summary']:
             raise Exception(f"По заданному пути файл уже есть: {req.text}")
         elif 'path/malformed_path/' in response['error_summary']:
-            raise Exception(f"Указан неправильный путь на сервере Dropbox: {path}")
+            raise Exception(
+                f"Указан неправильный путь на сервере Dropbox: {path}"
+            )
         raise Exception(f"Проблема при выгрузке файла: {req.text}")
     print("Файл успешно выгружен")
     return "Success"
@@ -406,4 +453,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
