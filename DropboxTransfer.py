@@ -242,8 +242,21 @@ def check_local_path(path):
     if args.load == 'up' and os.path.isfile(path):
         return path
 
-    if args.load == 'down' and os.path.exists(path):
-        return path
+    if args.load == 'down': #and os.path.exists(path):
+        pattern = r'.*(\\|/)'
+        pattern_start = r'(\\|/).*'
+        remote_file_name = re.sub(pattern, '', args.src)
+        if not path:
+            logging.debug(f"File_name: {remote_file_name}")
+            return remote_file_name
+        logging.debug(os.path.isdir(path))
+        logging.debug(os.path.isfile(path))
+        logging.debug(path)
+        if path.endswith(os.sep):
+            return path + remote_file_name
+        elif path.startswith(os.sep):
+            return path[1:]
+        return os.path.normpath(path)
 
     raise Exception(f"Файл не найден: {path} \n\r"
                     f"Проверьте корректность пути и имени файла.")
@@ -261,24 +274,74 @@ def check_remote_URL(path):
         logging.debug(f"Path ends with file name: {path.endswith(local_file_name)}")
         if path.endswith("/"):
             return path + local_file_name
-    elif args.load == 'down':
-        file_name = re.sub(pattern, '', args.dst)
+    #elif args.load == 'down':
+    #    if not path:
+    #        path = "/"
+    #    #file_name = re.sub(pattern, '', args.dst)
+    #    return path
     return path
 
-def check_file_permissions():
-    pass
 
-def check_if_file_present():
-    pass
+def download(tokens):
+    logging.debug(f"Source:{args.src}")
+    path = check_remote_URL(args.src)
+    logging.debug(path)
+    logging.debug(f"Destination:{args.dst}")
+    file_path = check_local_path(args.dst)
 
-def download():
-    pass
+    logging.debug(f"Destination:{file_path}")
+    headers = {'Authorization': f'Bearer {tokens["access_token"]}',
+               'Content-Type': 'application/octet-stream',
+               'Dropbox-API-Arg': json.dumps({
+                   "path": path,
+               })
+               }
+    params = {}
+    # TODO: provide hash to check if upload was correct
+    # TODO: implement progress bar
+    print('Загрузка файла с сервера Dropbox')
+    try:
+        req = requests.post(
+            CONTENT + '2/files/download',
+            headers=headers,
+            params=params,
+        )
+    except requests.exceptions.RequestException as error:
+        raise Exception(f"Проблема при подключении: {error}")
+    logging.debug(f'Response status code: {req.status_code}')
+    if req.status_code != 200:
+        if "did not match pattern" in req.text:
+            raise Exception(f"Ошибка загрузки: {req.text}\n"
+                            f"Неправильный путь для файла на сервере: {args.dst}")
+        try:
+            response = req.json()
+        except ValueError:
+            raise Exception(f"Проблема при загрузке файла: {req.text}")
+        if "path/not_file/" in response['error_summary']:
+            raise Exception(f"Указанный путь не является файлом на сервере: {req.text}")
+        elif "path/not_found/" in response['error_summary']:
+            raise Exception(f"Неверный путь к файлу на сервере: {req.text}")
+        #elif 'path/conflict/file/' in response['error_summary']:
+        #    raise Exception(f"По заданному пути файл уже есть: {req.text}")
+        elif 'path/malformed_path/' in response['error_summary']:
+            raise Exception(f"Указан неправильный путь на сервере Dropbox: {path}")
+        raise Exception(f"Проблема при загрузке файла: {req.text}")
+    try:
+        logging.debug('Файл загружен, сохраняем.')
+        open(file_path, 'wb').write(req.content)
+    except FileNotFoundError:
+        raise Exception(f"Файл не найден: {file_path} \n\r"
+                        f"Проверьте корректность пути и имени файла.")
+    except PermissionError:
+        raise Exception(f"Ошибка доступа к файлу: {file_path} \n\r"
+                        f"Необходимы права на запись файла.")
+    print("Файл успешно загружен")
 
 
 def upload(tokens):
-    print(args.src)
-    print(f"Destination:{args.dst}")
+    print(f"Source:{args.src}")
     file_path = check_local_path(args.src)
+    print(f"Destination:{args.dst}")
     path = check_remote_URL(args.dst)
     print(path)
     headers = {'Authorization': f'Bearer {tokens["access_token"]}',
@@ -366,7 +429,9 @@ def main():
         tokens = check_tokens()
         if args.load == 'up':
             result = upload(tokens)
-#
+        elif args.load == 'down':
+            result = download(tokens)
+
     except Exception as error:
         message = f'Ошибка: {error}'
         logging.error(message)
