@@ -466,6 +466,8 @@ def main():
             result = upload(tokens)
         elif args.load == 'down':
             result = download(tokens)
+        else:
+            result = 'Failure'
         logging.info(result)
         print(result)
     except (PermissionError,
