@@ -54,7 +54,7 @@ if args.debug:
         level=logging.DEBUG)
 else:
     logging.basicConfig(
-        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        format='%(asctime)s - %(levelname)s - %(message)s',
         level=logging.ERROR)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -201,6 +201,7 @@ def obtain_tokens(tokens):
                   'Пожалуйста пройдите по ссылке: \n\r' + req.url)
     print("Если вы случайно закрыли окно браузера, "
           "пожалуйста пройдите по ссылке: \n\r" + req.url)
+    response = {}
     for i in range(3):
         authorization_code = input('Введите код доступа из окна браузера:')
         logging.debug(f'Authorization code: {authorization_code}')
